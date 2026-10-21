@@ -88,3 +88,7 @@ $ ninja -C build-armv7
 ## License
 
 LGPL v2.1+
+
+## Maintenance du fork (2026)
+
+Cette branche maintient `dema-rc` pour le SkyController 2. Pour l'audit technique, les risques de sécurité, la matrice de validation et les tâches `task check`, `task arm` ou `task nvidia:arm`, consulter [la modernisation 2026](docs/modernization-2026.md). Les commandes ne réalisent aucun flash ni essai moteur. La compatibilité en vol **n'est pas encore validée**.
