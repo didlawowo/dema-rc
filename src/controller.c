@@ -19,6 +19,7 @@
 #include "event_loop.h"
 #include "log.h"
 #include "remote.h"
+#include "rc_scale.h"
 #include "util.h"
 
 #define REMOTE_UPDATE_INTERVAL 10
@@ -74,14 +75,7 @@ static uint16_t controller_abs_scale(struct Controller *c, enum Axis axis, int v
     int rmin = c->info.range[axis][INFO_ABS_MIN];
     int rmax = c->info.range[axis][INFO_ABS_MAX];
 
-    /* constrain values to range - linux input doesn't do this for us */
-    val = constrain(val, rmin, rmax);
-
-    /* transpose to [1000, 2000], or close to it */
-    val -= rmin;
-    val = val * (1000 / (rmax - rmin)) + 1000;
-
-    return (uint16_t)val;
+    return rc_scale_axis(val, rmin, rmax);
 }
 
 /* Currently we have a static map for SkyController 2 */
@@ -171,6 +165,12 @@ static int evdev_fill_info(int fd, struct Controller *c)
 
         memset(&abs, 0, sizeof(abs));
         ioctl(fd, EVIOCGABS(code), &abs);
+
+        /* Invalid ranges would otherwise produce undefined RC scaling. */
+        if (abs.maximum <= abs.minimum) {
+            log_error("Invalid axis %d range: min=%d max=%d\n", axis, abs.minimum, abs.maximum);
+            return -EINVAL;
+        }
 
         /* fill struct */
         c->info.range[axis][INFO_ABS_MIN] = abs.minimum;

@@ -1,0 +1,60 @@
+version: '3'
+
+vars:
+  IMAGE: dema-rc-builder:buildroot-2021.02.1
+  REMOTE: nvidia
+  REMOTE_DIR: discovery-dema-rc
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  check:
+    desc: Vérifier sans matériel les conversions des axes RC
+    cmds:
+      - mkdir -p .build/tests
+      - cc -std=gnu11 -Wall -Wextra -Werror -Isrc tests/test_rc_scale.c -o .build/tests/test_rc_scale
+      - .build/tests/test_rc_scale
+
+  native:
+    desc: Compiler dema-rc sur l'hôte (Meson et Ninja requis)
+    cmds:
+      - meson setup .build/native -Dboard=native
+      - meson compile -C .build/native
+
+  builder:
+    desc: Construire le SDK ARMv7 historique dans Docker amd64
+    cmds:
+      - docker build --platform linux/amd64 -t {{.IMAGE}} -f ci/Dockerfile.debian ci/
+
+  arm:
+    desc: Compiler dema-rc ARMv7 pour le SkyController 2
+    cmds:
+      - docker run --rm --platform linux/amd64 -v '{{.TASKFILE_DIR}}:/src' {{.IMAGE}} meson setup -Dboard=sc2 --cross-file /opt/arm-buildroot-linux-gnueabihf_sdk-buildroot/etc/meson/cross-compilation.conf .build/armv7
+      - docker run --rm --platform linux/amd64 -v '{{.TASKFILE_DIR}}:/src' {{.IMAGE}} ninja -C .build/armv7
+      - file .build/armv7/src/dema-rc
+      - shasum -a 256 .build/armv7/src/dema-rc
+
+  nvidia:sync:
+    desc: Copier les sources vers nvidia sans toucher aux services
+    cmds:
+      - ssh {{.REMOTE}} 'mkdir -p "$HOME/{{.REMOTE_DIR}}"'
+      - rsync -az --exclude=.git --exclude=.build --exclude=build --exclude=build-armv7 --exclude=build-native ./ {{.REMOTE}}:{{.REMOTE_DIR}}/
+
+  nvidia:arm:
+    desc: Compiler ARMv7 sur nvidia et rapatrier le binaire
+    cmds:
+      - task: nvidia:sync
+      - ssh {{.REMOTE}} 'cd "$HOME/{{.REMOTE_DIR}}" && docker build --platform linux/amd64 -t {{.IMAGE}} -f ci/Dockerfile.debian ci/'
+      - ssh {{.REMOTE}} 'cd "$HOME/{{.REMOTE_DIR}}" && docker run --rm --platform linux/amd64 -v "$PWD:/src" {{.IMAGE}} meson setup -Dboard=sc2 --cross-file /opt/arm-buildroot-linux-gnueabihf_sdk-buildroot/etc/meson/cross-compilation.conf .build/armv7 && docker run --rm --platform linux/amd64 -v "$PWD:/src" {{.IMAGE}} ninja -C .build/armv7'
+      - mkdir -p .build/armv7/src
+      - rsync -av {{.REMOTE}}:{{.REMOTE_DIR}}/.build/armv7/src/dema-rc .build/armv7/src/
+      - file .build/armv7/src/dema-rc
+      - shasum -a 256 .build/armv7/src/dema-rc
+
+  clean:
+    desc: Effacer seulement les fichiers générés localement
+    prompt: Effacer les sorties de compilation locales ?
+    cmds:
+      - rm -rf .build/

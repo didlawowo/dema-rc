@@ -1,5 +1,12 @@
-FROM debian:buster as builder
-ARG BUILDROOT_VERSION=2019.08.2
+# Derived from upstream Buildroot 2021.02.1 build recipe; archive-only fixes keep the SkyController 2 ABI.
+FROM debian:buster AS builder
+RUN sed -i \
+        -e 's|http://deb.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
+        -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
+        -e '/buster-updates/d' /etc/apt/sources.list \
+    && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive-buster
+
+ARG BUILDROOT_VERSION=2021.02.1
 
 RUN apt update && apt install -y \
 	bc \
@@ -16,13 +23,16 @@ RUN apt update && apt install -y \
 COPY buildroot.config /buildroot.config
 
 # allow packages to configure as root
-ENV FORCE_UNSAFE_CONFIGURE 1
+ENV FORCE_UNSAFE_CONFIGURE=1
 RUN export FORCE_UNSAFE_CONFIGURE=1 && \
 	mkdir -p /buildroot \
 	&& curl -SL https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.tar.gz \
 	| tar --strip-components=1 -xzC /buildroot \
 	&& cd /buildroot \
 	&& cp /buildroot.config .config \
+	&& sed -i -e 's|^BR2_GNU_MIRROR=.*|BR2_GNU_MIRROR="https://ftp.gnu.org/gnu"|' \
+        -e 's|^BR2_BACKUP_SITE=.*|BR2_BACKUP_SITE="https://sources.buildroot.net"|' \
+        -e 's|^BR2_WGET=.*|BR2_WGET="wget --timeout=25 --tries=3 --passive-ftp -nd"|' .config \
 	&& make olddefconfig \
 	&& make -j$(nproc) \
 	&& make -j1 sdk
@@ -34,11 +44,21 @@ RUN mkdir -p /opt \
 
 
 FROM debian:buster
+RUN sed -i \
+        -e 's|http://deb.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
+        -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
+        -e '/buster-updates/d' /etc/apt/sources.list \
+    && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive-buster
 RUN apt update && apt install -y \
 	gcc \
-	meson \
+	git \
+	python3-pip \
 	qemu-user-static \
+        ninja-build \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& mkdir -p /src
+RUN pip3 install 'meson>=0.57,<1.0'
+# If meson cannot find the right ninja version, the solution is to uninstall the ninja that came with meson: https://github.com/rizinorg/cutter/issues/2733
+RUN pip3 uninstall ninja
 WORKDIR /src
 COPY --from=builder /opt /opt
