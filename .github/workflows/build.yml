@@ -46,3 +46,50 @@ jobs:
             build/meson-logs/
             build/src/dema-rc
           if-no-files-found: warn
+
+  sc2-armv7:
+    runs-on: arc-runner-dema-rc
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Verify x86_64 Docker builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          docker info
+      - name: Build historical Buildroot SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64             -t dema-rc-builder:buildroot-2021.02.1             -f ci/Dockerfile.debian ci/
+      - name: Cross-compile for SkyController 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          image=dema-rc-builder:buildroot-2021.02.1
+          cross=/opt/arm-buildroot-linux-gnueabihf_sdk-buildroot/etc/meson/cross-compilation.conf
+          docker run --rm --platform linux/amd64             --user "$(id -u):$(id -g)" -e HOME=/tmp             -v "$PWD:/src" "$image"             meson setup -Dboard=sc2 --cross-file "$cross" build-armv7
+          docker run --rm --platform linux/amd64             --user "$(id -u):$(id -g)" -e HOME=/tmp             -v "$PWD:/src" "$image"             ninja -C build-armv7
+          test -s build-armv7/src/dema-rc
+          file build-armv7/src/dema-rc | tee build-armv7/elf.txt
+          grep -Eq 'ELF 32-bit.*ARM' build-armv7/elf.txt
+          sha256sum build-armv7/src/dema-rc | tee build-armv7/SHA256SUMS
+          git rev-parse HEAD > build-armv7/source-sha.txt
+          docker image inspect --format '{{.Id}}' "$image" > build-armv7/builder-image-id.txt
+      - name: Archive ARMv7 build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dema-rc-sc2-armv7-evidence
+          path: |
+            build-armv7/meson-logs/
+            build-armv7/src/dema-rc
+            build-armv7/elf.txt
+            build-armv7/SHA256SUMS
+            build-armv7/source-sha.txt
+            build-armv7/builder-image-id.txt
+          if-no-files-found: warn
