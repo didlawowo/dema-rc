@@ -30,6 +30,9 @@ RUN export FORCE_UNSAFE_CONFIGURE=1 && \
 	| tar --strip-components=1 -xzC /buildroot \
 	&& cd /buildroot \
 	&& cp /buildroot.config .config \
+	&& sed -i -e 's|^BR2_GNU_MIRROR=.*|BR2_GNU_MIRROR="https://ftp.gnu.org/gnu"|' \
+        -e 's|^BR2_BACKUP_SITE=.*|BR2_BACKUP_SITE="https://sources.buildroot.net"|' \
+        -e 's|^BR2_WGET=.*|BR2_WGET="wget --timeout=25 --tries=3 --passive-ftp -nd"|' .config \
 	&& make olddefconfig \
 	&& make -j$(nproc) \
 	&& make -j1 sdk
